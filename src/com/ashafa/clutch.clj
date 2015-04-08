@@ -1,21 +1,23 @@
 (ns com.ashafa.clutch
-  (:require [com.ashafa.clutch [utils :as utils]]
-            [cheshire.core :as json]
-            [clojure.java.io :as io]
-            [cemerick.url :as url]
-            clojure.string)
-  (:use com.ashafa.clutch.http-client)
-  (:import (java.io File FileInputStream BufferedInputStream InputStream ByteArrayOutputStream)
-           (java.net URL))
-  (:refer-clojure :exclude (conj! assoc! dissoc!)))
+  (:require
+   [com.ashafa.clutch [utils :as utils]]
+   [cheshire.core :as json]
+   [clojure.java.io :as io]
+   [cemerick.url :as url]
+   [clojure.string]
+   [com.ashafa.clutch.http-client :refer :all])
+  (:import
+   [java.io File FileInputStream BufferedInputStream InputStream ByteArrayOutputStream]
+   [java.net URL])
+  (:refer-clojure :exclude [conj! assoc! dissoc!]))
 
 (def ^{:private true} highest-supported-charcode 0xfff0)
 
 (def ^{:doc "A very 'high' unicode character that can be used
               as a wildcard suffix when querying views."}
-  ; \ufff0 appears to be the highest character that couchdb can support
-  ; discovered experimentally with v0.10 and v0.11 ~March 2010
-  ; now officially documented at http://wiki.apache.org/couchdb/View_collation
+  ;; \ufff0 appears to be the highest character that couchdb can support
+  ;; discovered experimentally with v0.10 and v0.11 ~March 2010
+  ;; now officially documented at http://wiki.apache.org/couchdb/View_collation
   wildcard-collation-string (str (char highest-supported-charcode)))
 
 (def ^{:dynamic true :private true} *database* nil)
@@ -30,20 +32,20 @@
                      maybe-db)]
       (if (and (thread-bound? #'*database*)
                (not (identical? maybe-db *database*)))
-      (apply f *database* args)
-      (apply f (utils/url maybe-db) rest)))))
+        (apply f *database* args)
+        (apply f (utils/url maybe-db) rest)))))
 
 (defmacro ^{:private true} defdbop
   "Same as defn, but wraps the defined function in another that transparently
-   allows for dynamic or explicit application of database configuration as well
-   as implicit coercion of the first `db` argument to a URL instance."
+  allows for dynamic or explicit application of database configuration as well
+  as implicit coercion of the first `db` argument to a URL instance."
   [name & body]
   `(do
      (defn ~name ~@body)
      (alter-var-root (var ~name) with-db*)
      (alter-meta! (var ~name) update-in [:doc] str
-       "\n\n  When used within the dynamic scope of `with-db`, the initial `db`"
-       "\n  argument is automatically provided.")))
+                  "\n\n  When used within the dynamic scope of `with-db`, the initial `db`"
+                  "\n  argument is automatically provided.")))
 
 (defdbop couchdb-info
   "Returns information about a CouchDB instance."
@@ -64,15 +66,15 @@
   [db]
   (couchdb-request :get db)
   #_(when-let [info (couchdb-request :get db)]
-    (merge info
-           (when-let [watchers (@watched-databases (str db))]
-             {:watchers (keys watchers)}))))
+      (merge info
+             (when-let [watchers (@watched-databases (str db))]
+               {:watchers (keys watchers)}))))
 
 (defdbop get-database
   "Returns a database meta information if it already exists else creates a new database and returns
    the meta information for the new database."
   [db]
-  (merge db 
+  (merge db
          (or (database-info db)
              (and (create-database db)
                   (database-info db)))))
@@ -89,44 +91,44 @@
    source database on the target databse."
   [srcdb tgtdb]
   (couchdb-request :post
-    (url/url tgtdb "/_replicate")
-    :data {:source (str srcdb)
-           :target (str tgtdb)}))
+                   (url/url tgtdb "/_replicate")
+                   :data {:source (str srcdb)
+                          :target (str tgtdb)}))
 
 (def ^{:private true} byte-array-class (Class/forName "[B"))
 
 (defn- attachment-info
   ([{:keys [data filename mime-type data-length]}] (attachment-info data data-length filename mime-type))
   ([data data-length filename mime-type]
-    (let [data (if (string? data)
-                 (File. ^String data)
-                 data)
-          check (fn [k v]
-                  (if v v
-                    (throw (IllegalArgumentException.
+   (let [data (if (string? data)
+                (File. ^String data)
+                data)
+         check (fn [k v]
+                 (if v v
+                     (throw (IllegalArgumentException.
                              (str k " must be provided if attachment data is an InputStream or byte[]")))))]
-      (cond
-        (instance? File data)
-        [(-> ^File data FileInputStream. BufferedInputStream.)
-         (.length ^File data)
-         (or filename (.getName ^File data))
-         (or mime-type (utils/get-mime-type data))]
-        
-        (instance? InputStream data)
-        [data (check :data-length data-length) (check :filename filename) (check :mime-type mime-type)]
-        
-        (= byte-array-class (class data))
-        [(java.io.ByteArrayInputStream. data) (count data)
-         (check :filename filename) (check :mime-type mime-type)]
-        
-        :default
-        (throw (IllegalArgumentException. (str "Cannot handle attachment data of type " (class data))))))))
+     (cond
+       (instance? File data)
+       [(-> ^File data FileInputStream. BufferedInputStream.)
+        (.length ^File data)
+        (or filename (.getName ^File data))
+        (or mime-type (utils/get-mime-type data))]
+
+       (instance? InputStream data)
+       [data (check :data-length data-length) (check :filename filename) (check :mime-type mime-type)]
+
+       (= byte-array-class (class data))
+       [(java.io.ByteArrayInputStream. data) (count data)
+        (check :filename filename) (check :mime-type mime-type)]
+
+       :default
+       (throw (IllegalArgumentException. (str "Cannot handle attachment data of type " (class data))))))))
 
 (defn- to-byte-array
   [input]
   (if (= byte-array-class (class input))
     input
-    ; make sure streams are closed so we don't hold locks on files on Windows
+                                        ; make sure streams are closed so we don't hold locks on files on Windows
     (with-open [^InputStream input (io/input-stream input)]
       (let [out (ByteArrayOutputStream.)]
         (io/copy input out)
@@ -138,23 +140,23 @@
                         (when id {:_id id})
                         (when (seq attachments)
                           (->> attachments
-                            (map #(if (map? %) % {:data %}))
-                            (map attachment-info)
-                            (reduce (fn [m [data data-length filename mime]]
-                                      (assoc m (keyword filename)
-                                        {:content_type mime
-                                         :data (-> data
-                                                 to-byte-array
-                                                 org.apache.commons.codec.binary.Base64/encodeBase64String)}))
-                                    {})
-                            (hash-map :_attachments))))
+                               (map #(if (map? %) % {:data %}))
+                               (map attachment-info)
+                               (reduce (fn [m [data data-length filename mime]]
+                                         (assoc m (keyword filename)
+                                                {:content_type mime
+                                                 :data (-> data
+                                                           to-byte-array
+                                                           org.apache.commons.codec.binary.Base64/encodeBase64String)}))
+                                       {})
+                               (hash-map :_attachments))))
         result (couchdb-request
-                 (if (:_id document) :put :post)
-                 (assoc (utils/url db (:_id document))
-                   :query request-params)
-                 :data document)]
+                (if (:_id document) :put :post)
+                (assoc (utils/url db (:_id document))
+                       :query request-params)
+                :data document)]
     (and (:ok result)
-      (assoc document :_rev (:rev result) :_id (:id result)))))
+         (assoc document :_rev (:rev result) :_id (:id result)))))
 
 (defn dissoc-meta
   "dissoc'es the :_id and :_rev slots from the provided map."
@@ -168,8 +170,8 @@
   ;; TODO a nil or empty key should probably just throw an exception
   (when (seq (str id))
     (couchdb-request :get
-      (-> (utils/url db id)
-        (assoc :query get-params)))))
+                     (-> (utils/url db id)
+                         (assoc :query get-params)))))
 
 (defdbop document-exists?
   "Returns true if a document with the given key exists in the database."
@@ -203,13 +205,13 @@
    must be provided as a destination argument to avoid a 409 Conflict."
   [db src dest]
   (let [dest (if (map? dest) dest {:_id dest})
-        ; TODO yuck; surely we need an id?rev=123 string elsewhere, so this can be rolled into a URL helper fn?
+                                        ; TODO yuck; surely we need an id?rev=123 string elsewhere, so this can be rolled into a URL helper fn?
         dest (apply str (:_id dest) (when (:_rev dest) ["?rev=" (:_rev dest)]))]
     (couchdb-request :copy
-      (document-url db (if (map? src)
-                         src
-                         {:_id src}))
-      :headers {"Destination" dest})))
+                     (document-url db (if (map? src)
+                                        src
+                                        {:_id src}))
+                     :headers {"Destination" dest})))
 
 ;; TODO update-document doesn't provide a lot, now that put-document is here and can update or create as necessary
 (defdbop update-document
@@ -223,7 +225,7 @@
                    (fn? mod) (apply mod document args)
                    (nil? mod) document
                    :else (throw (IllegalArgumentException.
-                                  "A map or function is needed to update a document.")))]
+                                 "A map or function is needed to update a document.")))]
     (put-document db document)))
 
 (defdbop configure-view-server
@@ -233,8 +235,8 @@
    up CouchDB to be Clutch-view-server-ready in general terms."
   [db exec-string & {:keys [language] :or {language "clojure"}}]
   (couchdb-request :put
-    (url/url db "/_config/query_servers/" (-> language name url/url-encode))
-    :data (pr-str exec-string)))
+                   (url/url db "/_config/query_servers/" (-> language name url/url-encode))
+                   :data (pr-str exec-string)))
 
 (defn- map-leaves
   [f m]
@@ -258,12 +260,12 @@
   [language]
   (try
     (require 'com.ashafa.clutch.cljs-views)
-    ; com.ashafa.clutch.cljs-views defines a method for :cljs, so this
-    ; call will land in it
+    ;; com.ashafa.clutch.cljs-views defines a method for :cljs, so this
+    ;; call will land in it
     (view-transformer language)
     (catch Exception e
       (throw (UnsupportedOperationException.
-               "Could not load com.ashafa.clutch.cljs-views; ensure ClojureScript and its dependencies are available, and that you're using Clojure >= 1.3.0." e)))))
+              "Could not load com.ashafa.clutch.cljs-views; ensure ClojureScript and its dependencies are available, and that you're using Clojure >= 1.3.0." e)))))
 
 (defmacro view-server-fns
   [options fns]
@@ -296,18 +298,18 @@
 
 (defn- get-view*
   "Get documents associated with a design document. Also takes an optional map
-   for querying options, and a second map of {:key [keys]} to be POSTed.
-   (see: http://wiki.apache.org/couchdb/HTTP_view_API)."
+  for querying options, and a second map of {:key [keys]} to be POSTed.
+  (see: http://wiki.apache.org/couchdb/HTTP_view_API)."
   [db path-segments & [query-params-map post-data-map]]
   (let [url (assoc (apply utils/url db path-segments)
-              :query (into {} (for [[k v] query-params-map]
-                                [k (if (#{"key" "keys" "startkey" "endkey"} (name k))
-                                     (json/generate-string v)
-                                     v)])))]
+                   :query (into {} (for [[k v] query-params-map]
+                                     [k (if (#{"key" "keys" "startkey" "endkey"} (name k))
+                                          (json/generate-string v)
+                                          v)])))]
     (view-request
-      (if (empty? post-data-map) :get :post)
-      url
-      :data (when (seq post-data-map) post-data-map))))
+     (if (empty? post-data-map) :get :post)
+     url
+     :data (when (seq post-data-map) post-data-map))))
 
 (defdbop get-view
   "Get documents associated with a design document. Also takes an optional map
@@ -342,31 +344,31 @@
    (e.g. for \"all-or-nothing\" semantics, etc)."
   [db documents & {:as options}]
   (couchdb-request :post
-    (utils/url db "_bulk_docs")
-    :data (assoc options :docs documents)))
+                   (utils/url db "_bulk_docs")
+                   :data (assoc options :docs documents)))
 
 (defdbop put-attachment
   "Updates (or creates) the attachment for the given document.  `data` can be a string path
    to a file, a java.io.File, a byte array, or an InputStream.
-   
+
    If `data` is a byte array or InputStream, you _must_ include the following otherwise-optional
    kwargs:
 
        :filename — name to be given to the attachment in the document
        :mime-type — type of attachment data
 
-   These are derived from a file path or File if not provided.  (Mime types are derived from 
+   These are derived from a file path or File if not provided.  (Mime types are derived from
    filename extensions; see com.ashafa.clutch.utils/get-mime-type for determining mime type
    yourself from a File object.)"
   [db document data & {:keys [filename mime-type data-length]}]
   (let [[stream data-length filename mime-type] (attachment-info data data-length filename mime-type)]
     (couchdb-request :put
-      (-> db
-        (document-url document)
-        (utils/url (name filename)))
-      :data stream
-      :data-length data-length
-      :content-type mime-type)))
+                     (-> db
+                         (document-url document)
+                         (utils/url (name filename)))
+                     :data stream
+                     :data-length data-length
+                     :content-type mime-type)))
 
 (defdbop delete-attachment
   "Deletes an attachemnt from a document."
@@ -386,8 +388,8 @@
     (when (-> doc :_attachments (get (keyword attachment-name)))
       (couchdb-request :get
                        (-> (document-url db doc)
-                         (utils/url attachment-name)
-                         (assoc :as :stream))))))
+                           (utils/url attachment-name)
+                           (assoc :as :stream))))))
 
 ;;;; _changes
 
@@ -402,9 +404,9 @@
     (when-not response
       (throw (IllegalStateException. (str "Database for _changes feed does not exist: " url))))
     (-> response
-      :body
-      (lazy-view-seq (not= "continuous" feed))
-      (vary-meta assoc ::http-resp response))))
+        :body
+        (lazy-view-seq (not= "continuous" feed))
+        (vary-meta assoc ::http-resp response))))
 
 (defn- change-agent-config
   [db options]
@@ -424,7 +426,7 @@
    `add-watch` in order to be notified of changes.  The
    returned change agent is entirely 'managed', with
    `start-changes` and `stop-changes` controlling its operation
-   and sent actions.  If you send actions to a change agent, 
+   and sent actions.  If you send actions to a change agent,
    bad things will likely happen."
   [db & {:as opts}]
   (agent nil :meta {::changes-config (atom (change-agent-config db opts))}))
@@ -436,7 +438,7 @@
     (case (::state config)
       :init (let [changes (apply changes (::db config) (flatten (remove (comp namespace key) config)))
                   http-resp (-> changes meta ::http-resp)]
-              ; cannot shut down continuous _changes feeds without aborting this
+              ;; cannot shut down continuous _changes feeds without aborting this
               (assert (-> http-resp :request :http-req))
               (swap! config-atom merge {::seq changes
                                         ::http-resp http-resp
@@ -457,21 +459,21 @@
 
 (defn changes-running?
   "Returns true only if the given change agent has been started
-   (using `start-changes`) and is delivering changes to
-   attached watches."
+  (using `start-changes`) and is delivering changes to
+  attached watches."
   [^clojure.lang.Agent change-agent]
   (boolean (-> change-agent meta ::state #{:init :running})))
 
 (defn start-changes
   "Starts the flow of changes through the given change-agent.
-   All of the options provided to `change-agent` are used to
-   configure the underlying _changes feed."
+  All of the options provided to `change-agent` are used to
+  configure the underlying _changes feed."
   [change-agent]
   (send-off change-agent #'run-changes))
 
 (defn stop-changes
   "Stops the flow of changes through the given change-agent.
-   Change agents can be restarted with `start-changes`."
+  Change agents can be restarted with `start-changes`."
   [change-agent]
   (swap! (-> change-agent meta ::changes-config) assoc ::state :stopped)
   change-agent)
@@ -479,8 +481,8 @@
 
 (defmacro with-db
   "Takes a URL, database name (useful for localhost only), or an instance of
-   com.ashafa.clutch.utils.URL.  That value is used to configure the subject
-   of all of the operations within the dynamic scope of body of code."
+  com.ashafa.clutch.utils.URL.  That value is used to configure the subject
+  of all of the operations within the dynamic scope of body of code."
   [database & body]
   `(binding [*database* (utils/url ~database)]
      ~@body))
@@ -489,21 +491,21 @@
 
 (defprotocol CouchOps
   "Defines side-effecting operations on a CouchDB database.
-   All operations return the CouchDB database reference —
-   with the return value from the underlying clutch function
-   added to its :result metadata — for easy threading and
-   reduction usage.
-   (EXPERIMENTAL!)"
+  All operations return the CouchDB database reference —
+  with the return value from the underlying clutch function
+  added to its :result metadata — for easy threading and
+  reduction usage.
+  (EXPERIMENTAL!)"
   (create! [this] "Ensures that the database exists, and returns the database's meta info.")
   (conj! [this document]
-         "PUTs a document into CouchDB. Accepts either a document map (using an :_id value
+    "PUTs a document into CouchDB. Accepts either a document map (using an :_id value
           if present as the document id), or a vector/map entry consisting of a
           [id document-map] pair.")
   (assoc! [this id document]
-          "PUTs a document into CouchDB. Equivalent to (conj! couch [id document]).")
+    "PUTs a document into CouchDB. Equivalent to (conj! couch [id document]).")
   (dissoc! [this id-or-doc]
-           "DELETEs a document from CouchDB. Uses a given document map's :_id and :_rev
-            if provided; alternatively, if passed a string, will blindly attempt to 
+    "DELETEs a document from CouchDB. Uses a given document map's :_id and :_rev
+            if provided; alternatively, if passed a string, will blindly attempt to
             delete the current revision of the corresponding document."))
 
 (defn- with-result-meta
@@ -518,33 +520,33 @@
                      (map? doc)  [(:_id doc) doc]
                      (or (vector? doc) (instance? java.util.Map$Entry)) doc)]
       (->> (put-document url doc :id id)
-        (fail-on-404 url)
-        (with-result-meta this))))
+           (fail-on-404 url)
+           (with-result-meta this))))
   (assoc! [this id document] (conj! this [id document]))
   (dissoc! [this id]
     (if-let [d (if (document? id)
-                   id
-                   (this id))]
+                 id
+                 (this id))]
       (with-result-meta this (delete-document url d))
       (with-result-meta this nil)))
-  
+
   clojure.lang.ILookup
   (valAt [this k] (get-document url k))
   (valAt [this k default] (or (.valAt this k) default))
-  
+
   clojure.lang.Counted
   (count [this] (->> (database-info url) (fail-on-404 url) :doc_count))
-  
+
   clojure.lang.Seqable
   (seq [this]
     (->> (all-documents url {:include_docs true})
-      (map :doc)
-      (map #(clojure.lang.MapEntry. (:_id %) %))))
-  
+         (map :doc)
+         (map #(clojure.lang.MapEntry. (:_id %) %))))
+
   clojure.lang.IFn
   (invoke [this key] (.valAt this key))
   (invoke [this key default] (.valAt this key default))
-  
+
   clojure.lang.IMeta
   (meta [this] meta)
   clojure.lang.IObj
